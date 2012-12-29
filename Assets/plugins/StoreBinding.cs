@@ -2,7 +2,7 @@ using UnityEngine;
 using System.Collections;
 using System.Runtime.InteropServices;
 
-public class PurchaseBinding 
+public class StoreBinding 
 {
 #if UNITY_IPHONE
 	[DllImport("__Internal")]
@@ -11,7 +11,10 @@ public class PurchaseBinding
 	[DllImport("__Internal")]
 	private static extern bool _canMakeStorePurchases();
 	
-	public static void initStore(string[] productArray)
+	[DllImport("__Internal")]
+	private static extern bool _purchaseItem(string itemName);
+	
+	public static void LoadStore(string[] productArray)
 	{
 		string products = ArrayToString(productArray);
 		
@@ -21,6 +24,11 @@ public class PurchaseBinding
 		
 		Debug.Log("Is Allowed " + allowed);
 		
+	}
+	
+	public static void PurchaseItem(string itemName)
+	{
+		_purchaseItem(itemName);
 	}
 	
 	public static string ArrayToString(string[] convertArray)

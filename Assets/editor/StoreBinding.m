@@ -16,8 +16,8 @@
 
 void _initStoreWithProducts(const char * products)
 {
-    Store *purchase = [Store sharedSingleton];
-    [purchase loadStoreWithProducts:GetStringParam(products)];
+    Store *store = [Store sharedSingleton];
+    [store loadStoreWithProducts:GetStringParam(products)];
 }
 
 bool _canMakeStorePurchases()
@@ -28,6 +28,8 @@ bool _canMakeStorePurchases()
 
 void _purchaseItem(const char *item)
 {
-    
+    NSString *itemName = GetStringParam(item);
+    Store *store = [Store sharedSingleton];
+    [store purchaseItemByName:itemName];
 }
 

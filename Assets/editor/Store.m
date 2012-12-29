@@ -10,8 +10,11 @@
 
 
 @implementation Store
+
 @synthesize products = _products;
+ 
 static Store *sharedSingleton;
+
 
 + (void)initialize
 {
@@ -35,7 +38,6 @@ static Store *sharedSingleton;
     
     NSSet *items = [Store unityStringToSet:products];
     
-    //NSSet *productIdentifiers = [NSSet setWithObjects:@"turbo", @"coins", nil];
     SKProductsRequest *request = [[SKProductsRequest alloc] initWithProductIdentifiers:items];
     
     request.delegate = self;
@@ -50,17 +52,19 @@ static Store *sharedSingleton;
 
 - (void) productsRequest:(SKProductsRequest *)request didReceiveResponse:(SKProductsResponse *)response
 {
-    [self setProducts:[response products] ];
+    [sharedSingleton setProducts:[response products]];
     
-    
-    for(SKProduct *product in [self products])
+    productsDict = [[NSMutableDictionary alloc] init];
+    for(SKProduct *product in [sharedSingleton products])
     {
+        // Add to a dictionary to easily get it by it's id
+        [productsDict setObject:product forKey:product.productIdentifier];
+        
         NSLog(@"Product title: %@" , product.localizedTitle);
         NSLog(@"Product description: %@", product.localizedDescription);
         NSLog(@"Product price: %@", product.price);
         NSLog(@"Product id: %@", product.productIdentifier);
     }
-    
     
     for (NSString *invalidProductId in response.invalidProductIdentifiers)
     {
@@ -77,6 +81,24 @@ static Store *sharedSingleton;
     
 }
 
+- (void) purchaseItemByName:(NSString *) itemName
+{
+    SKProduct *product = [productsDict objectForKey:itemName];
+    if(product)
+    {
+        [sharedSingleton purchaseItem:product];
+    }else{
+        NSLog(@"Product %@ does NOT exist", itemName);
+    }
+}
+
+- (void) purchaseItem:(SKProduct *) item
+{
+    NSLog(@"Purchasing item %@", item.localizedTitle);
+    SKPayment *payment = [SKPayment paymentWithProduct:item];
+    [[SKPaymentQueue defaultQueue] addPayment:payment];
+}
+
 
 //
 // called when the transaction status is updated
@@ -89,12 +111,15 @@ static Store *sharedSingleton;
         {
             case SKPaymentTransactionStatePurchased:
                 //[self completeTransaction:transaction];
+                NSLog(@"Purchased Successful");
                 break;
             case SKPaymentTransactionStateFailed:
                 //[self failedTransaction:transaction];
+                NSLog(@"Purcahse Failed");
                 break;
             case SKPaymentTransactionStateRestored:
                 //[self restoreTransaction:transaction];
+                NSLog(@"Purchase Restored");
                 break;
             default:
                 break;
