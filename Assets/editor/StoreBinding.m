@@ -8,16 +8,22 @@
 
 #import "Store.h"
 
-// Converts NSString to C style string by way of copy (Mono will free it)
-#define MakeStringCopy( _x_ ) ( _x_ != NULL && [_x_ isKindOfClass:[NSString class]] ) ? strdup( [_x_ UTF8String] ) : NULL
-
 // Converts C style string to NSString
 #define GetStringParam( _x_ ) ( _x_ != NULL ) ? [NSString stringWithUTF8String:_x_] : [NSString stringWithUTF8String:""]
 
-void _initStoreWithProducts(const char * products)
+void UnitySendMessage( const char * className, const char * methodName, const char * param );
+
+void _initStoreWithProducts(const char *products)
 {
     Store *store = [Store sharedSingleton];
     [store loadStoreWithProducts:GetStringParam(products)];
+}
+
+void _setVerificationServer(const char *url)
+{
+    Store *store = [Store sharedSingleton];
+    [store setVerifyTransaction:YES];
+    [store setVerifyServer:GetStringParam(url)];
 }
 
 bool _canMakeStorePurchases()
@@ -26,10 +32,19 @@ bool _canMakeStorePurchases()
     return [store canMakeStorePurchases];
 }
 
-void _purchaseItem(const char *item)
+void _purchaseProduct(const char *productNameChar)
 {
-    NSString *itemName = GetStringParam(item);
+    NSString *productName = GetStringParam(productNameChar);
     Store *store = [Store sharedSingleton];
-    [store purchaseItemByName:itemName];
+    [store purchaseItemByName:productName];
 }
+
+void _getProductInfo(const char *productNameChar)
+{
+    NSString *productName = GetStringParam(productNameChar);
+    Store *store = [Store sharedSingleton];
+    [store getItemInfo:productName];
+}
+
+
 

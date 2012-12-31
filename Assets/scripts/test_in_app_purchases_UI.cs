@@ -6,8 +6,7 @@ public class test_in_app_purchases_UI : MonoBehaviour
 	
 	void Start ()
 	{
-		string[] products = {"coins", "turbo"};
-		StoreBinding.LoadStore(products);
+
 	}
 
 	void OnGUI () 
@@ -15,15 +14,18 @@ public class test_in_app_purchases_UI : MonoBehaviour
 		GUI.Box(new Rect(10,10,300,190), "Purchase Test");
 
 		if(GUI.Button(new Rect(20,40,280,40), "Test Coins")) {
-			StoreBinding.PurchaseItem("coins");
+			StoreBinding.PurchaseProduct("coins");
 		}
 
 		if(GUI.Button(new Rect(20,90,280,40), "Test Turbo")) {
-			StoreBinding.PurchaseItem("turbo");
+			StoreBinding.PurchaseProduct("turbo");
 		}
 		
 		if(GUI.Button(new Rect(20, 140, 280, 40), "Get Products")){
-			Debug.Log("Grabbing Products");
+			foreach(StoreProduct product in StoreManager.instance.ListProducts())
+			{
+				Debug.Log(product.Title);
+			}
 		}
 	}
 }

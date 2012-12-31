@@ -8,10 +8,17 @@
 
 #import "Store.h"
 
+// Converts NSString to C style string by way of copy (Mono will free it)
+#define MakeStringCopy( _x_ ) ( _x_ != NULL && [_x_ isKindOfClass:[NSString class]] ) ? strdup( [_x_ UTF8String] ) : NULL
+
+static NSString *const verifyPurchaseNotification = @"verifyPurchaseNotification";
+static NSString *const verifyFailedNotification   = @"verifiedFailedNotification";
 
 @implementation Store
 
-@synthesize products = _products;
+@synthesize products            = _products;
+@synthesize verifyTransaction   = _verifyTransaction;
+@synthesize verifyServer        = _verifyServer;
  
 static Store *sharedSingleton;
 
@@ -42,7 +49,6 @@ static Store *sharedSingleton;
     
     request.delegate = self;
     [request start];
-    
 }
 
 - (bool) canMakeStorePurchases
@@ -59,11 +65,6 @@ static Store *sharedSingleton;
     {
         // Add to a dictionary to easily get it by it's id
         [productsDict setObject:product forKey:product.productIdentifier];
-        
-        NSLog(@"Product title: %@" , product.localizedTitle);
-        NSLog(@"Product description: %@", product.localizedDescription);
-        NSLog(@"Product price: %@", product.price);
-        NSLog(@"Product id: %@", product.productIdentifier);
     }
     
     for (NSString *invalidProductId in response.invalidProductIdentifiers)
@@ -71,14 +72,32 @@ static Store *sharedSingleton;
         NSLog(@"Invalid product id: %@", invalidProductId);
     }
     
-    [[NSNotificationCenter defaultCenter] postNotificationName:@"purchaseNotification" object:self];
+    UnitySendMessage("StoreManager", "CallbackStoreLoadedSuccessfully", "");
     
 }
 
 - (void)request:(SKRequest *)request didFailWithError:(NSError *)error {
     
     NSLog(@"Failed to load list of products.");
+    UnitySendMessage("StoreManager", "CallbackStoreLoadFailed", "");
     
+}
+
+- (void) getItemInfo:(NSString *) itemName
+{
+    SKProduct *product = [productsDict objectForKey:itemName];
+    if (product)
+    {
+        NSString *productInfoToString = [[NSString alloc]
+                                         initWithFormat:@"%@|%@|%@|%@",
+                                            product.localizedTitle,
+                                            product.localizedDescription,
+                                            product.price,
+                                            product.productIdentifier];
+        
+        UnitySendMessage("StoreManager", "CallbackReceiveProductInfo", MakeStringCopy(productInfoToString));
+        [productInfoToString release];
+    }
 }
 
 - (void) purchaseItemByName:(NSString *) itemName
@@ -103,23 +122,20 @@ static Store *sharedSingleton;
 //
 // called when the transaction status is updated
 //
-- (void)paymentQueue:(SKPaymentQueue *)queue updatedTransactions:(NSArray *)transactions
+- (void) paymentQueue:(SKPaymentQueue *)queue updatedTransactions:(NSArray *)transactions
 {
     for (SKPaymentTransaction *transaction in transactions)
     {
         switch (transaction.transactionState)
         {
             case SKPaymentTransactionStatePurchased:
-                //[self completeTransaction:transaction];
-                NSLog(@"Purchased Successful");
+                [sharedSingleton completeTransaction:transaction];
                 break;
             case SKPaymentTransactionStateFailed:
-                //[self failedTransaction:transaction];
-                NSLog(@"Purcahse Failed");
+                [sharedSingleton failedTransaction:transaction];
                 break;
             case SKPaymentTransactionStateRestored:
-                //[self restoreTransaction:transaction];
-                NSLog(@"Purchase Restored");
+                [sharedSingleton restoreTransaction:transaction];
                 break;
             default:
                 break;
@@ -127,10 +143,112 @@ static Store *sharedSingleton;
     }
 }
 
+- (void) completeTransaction:(SKPaymentTransaction *) transaction
+{
+    if([sharedSingleton verifyTransaction])
+    {
+        NSString *receipt = [Store base64forData:transaction.transactionReceipt];
+        [[NSNotificationCenter defaultCenter] addObserver:sharedSingleton selector:@selector(finishTransactionSuccessfully:) name:verifyPurchaseNotification object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:sharedSingleton selector:@selector(finishTransactionFailure:) name:verifyFailedNotification object:nil];
+        [sharedSingleton verifyReceipt:receipt];
+    }else{
+        UnitySendMessage("StoreManager", "CallbackProvideContent", MakeStringCopy(transaction.originalTransaction.payment.productIdentifier));
+    }
+    // remove the transaction from the payment queue.
+    [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
+}
+
+- (void) restoreTransaction:(SKPaymentTransaction *) transaction
+{
+    if([sharedSingleton verifyTransaction])
+    {
+        [[NSNotificationCenter defaultCenter] addObserver:sharedSingleton selector:@selector(finishTransactionSuccessfully:) name:verifyPurchaseNotification object:nil];
+        [[NSNotificationCenter defaultCenter] addObserver:sharedSingleton selector:@selector(finishTransactionFailure:) name:verifyFailedNotification object:nil];
+        NSString *receipt = [Store base64forData:transaction.originalTransaction.transactionReceipt];
+        [sharedSingleton verifyReceipt:receipt];
+    }else{
+        UnitySendMessage("StoreManager", "CallbackProvideContent", MakeStringCopy(transaction.originalTransaction.payment.productIdentifier));
+    }
+    // remove the transaction from the payment queue.
+    [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
+}
+
+- (void) failedTransaction:(SKPaymentTransaction *)transaction
+{
+    if (transaction.error.code != SKErrorPaymentCancelled)
+    {
+        NSLog(@"Transaction failed");
+        // error!
+        UnitySendMessage("StoreManager", "CallbackTransactionFailed", "");
+        // remove the transaction from the payment queue.
+        [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
+    }
+    else
+    {
+        NSLog(@"User canceled Transaction");
+        // User quit the transaction
+        [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
+    }
+}
+
+- (void) finishTransactionSuccessfully:(NSNotification *)notification
+{
+    if([notification object] != nil)
+    {
+        NSHTTPURLResponse* httpResponse = (NSHTTPURLResponse*)[notification object];
+        NSLog(@"%i", [httpResponse statusCode]);
+        UnitySendMessage("StoreManager", "CallbackProvideContent", "Product Awesome");
+    }else{
+        UnitySendMessage("StoreManager", "CallbackProvideContent", "Product Server Failed");
+    }
+    
+    // Remove the observers
+    [[NSNotificationCenter defaultCenter] removeObserver:sharedSingleton name:verifyPurchaseNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:sharedSingleton name:verifyFailedNotification object:nil];
+}
+
+- (void) finishTransactionFailure:(NSNotification *)notification
+{
+    UnitySendMessage("StoreManager", "CallbackTransactionFailed", "");
+    [[NSNotificationCenter defaultCenter] removeObserver:sharedSingleton name:verifyPurchaseNotification object:nil];
+    [[NSNotificationCenter defaultCenter] removeObserver:sharedSingleton name:verifyFailedNotification object:nil];
+}
+
+//
+// Send the receipt to the server to verify it was legit
+//
+- (void) verifyReceipt:(NSString *) receipt
+{
+    NSDictionary *tmp = [[NSDictionary alloc] initWithObjectsAndKeys:
+                         receipt, @"receipt-data",
+                         nil];
+    
+    NSError *error;
+    NSData *postdata = [NSJSONSerialization dataWithJSONObject:tmp options:0 error:&error];
+    
+    NSURL *verifyPurchaseURL = [[NSURL alloc] initWithString:[sharedSingleton verifyServer]];
+    NSMutableURLRequest *request = [[NSMutableURLRequest alloc] initWithURL:verifyPurchaseURL];
+    [request setHTTPMethod:@"POST"];
+    [request setHTTPBody:postdata];
+    [NSURLConnection connectionWithRequest:request delegate:sharedSingleton];
+}
+
+- (void) connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response
+{
+    NSHTTPURLResponse* httpResponse = (NSHTTPURLResponse*)response;
+    [[NSNotificationCenter defaultCenter] postNotificationName:verifyPurchaseNotification object:httpResponse];
+}
+
+- (void) connection:(NSURLConnection *)connection didFailWithError:(NSError *)error
+{
+    NSLog(@"%@", error.description);
+    // If the server is down, just consider it verified
+    [[NSNotificationCenter defaultCenter] postNotificationName:verifyPurchaseNotification object:nil];
+}
+
 + (NSSet*) unityStringToSet:(NSString*) productString
 {
-    
-    NSArray *items = [productString componentsSeparatedByString:@","];
+    NSArray *items = [productString componentsSeparatedByString:@"|"];
     NSSet *products = [NSSet setWithArray:items];
     return products;
 }
